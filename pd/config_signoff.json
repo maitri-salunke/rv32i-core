@@ -1,0 +1,28 @@
+{
+  "DESIGN_NAME": "rv32i_core",
+  "VERILOG_FILES": [
+    "dir::../rtl/core/rv32i_decode.sv",
+    "dir::../rtl/core/rv32i_alu.sv",
+    "dir::../rtl/core/rv32i_regfile.sv",
+    "dir::../rtl/core/rv32i_csr.sv",
+    "dir::../rtl/core/rv32i_hazard.sv",
+    "dir::../rtl/core/rv32i_core.sv"
+  ],
+  "VERILOG_INCLUDE_DIRS": [
+    "dir::../rtl/core"
+  ],
+  "CLOCK_PORT": "clk",
+  "CLOCK_PERIOD": 23,
+  "FP_CORE_UTIL": 45,
+  "PL_TARGET_DENSITY_PCT": 55,
+  "IO_DELAY_CONSTRAINT": 20,
+  "RUN_LINTER": false,
+  "RUN_HEURISTIC_DIODE_INSERTION": true,
+  "DIODE_ON_PORTS": "in",
+  "GRT_ANTENNA_ITERS": 10,
+  "GRT_ANTENNA_MARGIN": 20,
+  "RSZ_CORNERS": [
+    "nom_tt_025C_1v80",
+    "max_ss_100C_1v60"
+  ]
+}

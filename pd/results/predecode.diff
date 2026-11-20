@@ -1,0 +1,102 @@
+--- a/rtl/core/rv32i_core.sv	2026-11-20 23:35:32
++++ b/rtl/core/rv32i_core.sv	2026-11-20 23:35:49
+@@ -6,8 +6,12 @@
+ //
+ //   IF : pc_f drives imem_addr directly (registered output).
+ //   ID : decode imem_rdata, read register file (WB write-first bypass).
++//        Static predecode: JAL and backward conditional branches redirect
++//        fetch to pc+imm from ID (1-cycle bubble); forward branches are
++//        predicted not-taken (BTFN). JALR is not predicted.
+ //   EX : forwarding muxes, ALU, branch compare, jump target, CSR access,
+-//        exception/interrupt detection. All PC redirects originate here.
++//        exception/interrupt detection. EX corrects mispredictions (and
++//        handles JALR, traps, mret) with the 2-cycle redirect.
+ //   MEM: drive dmem request from the EX/MEM register (store data pre-aligned
+ //        in EX). dmem_gnt=0 freezes the pipe.
+ //   WB : align/sign-extend load data, write the register file, count retire.
+@@ -43,6 +47,8 @@
+   logic        stall_mem, redirect, load_use, stall_id;
+   logic        ex_redirect_req;
+   logic [31:0] redirect_pc;
++  logic        id_pred;          // ID predecode: predicted-taken JAL/branch
++  logic [31:0] id_pred_target;
+ 
+   // ==========================================================================
+   // IF
+@@ -55,7 +61,7 @@
+   always_ff @(posedge clk or negedge rst_n) begin
+     if (!rst_n)          pc_f <= RESET_PC;
+     else if (redirect)   pc_f <= redirect_pc;
+-    else if (!stall_id)  pc_f <= pc_f + 32'd4;
++    else if (!stall_id)  pc_f <= id_pred ? id_pred_target : pc_f + 32'd4;
+   end
+ 
+   // ==========================================================================
+@@ -74,7 +80,7 @@
+     end else if (redirect) begin
+       id_valid <= 1'b0;
+     end else if (!stall_id) begin
+-      id_valid <= 1'b1;
++      id_valid <= ~id_pred;   // squash the pc+4 fetch behind a predicted-taken jump
+       id_pc    <= pc_f;
+     end
+   end
+@@ -82,6 +88,21 @@
+   // ==========================================================================
+   // ID
+   // ==========================================================================
++  // ---- static branch predecode (independent of the register file and of
++  // forwarding: only the instruction word and id_pc) ----
++  logic        pd_is_jal, pd_is_br;
++  logic [31:0] pd_imm;
++
++  assign pd_is_jal = (id_insn[6:0] == OP_JAL);
++  assign pd_is_br  = (id_insn[6:0] == OP_BRANCH);
++  // JAL (opcode bit 2 set) uses the J-immediate, branches the B-immediate.
++  assign pd_imm    = id_insn[2] ?
++      {{12{id_insn[31]}}, id_insn[19:12], id_insn[20], id_insn[30:21], 1'b0} :
++      {{20{id_insn[31]}}, id_insn[7], id_insn[30:25], id_insn[11:8], 1'b0};
++  // JAL always taken; conditional branch taken iff backward (imm sign bit).
++  assign id_pred        = id_valid & (pd_is_jal | (pd_is_br & id_insn[31]));
++  assign id_pred_target = id_pc + pd_imm;
++
+   logic [4:0]  d_rs1, d_rs2, d_rd;
+   logic        d_rs1_used, d_rs2_used, d_rd_we;
+   logic [31:0] d_imm;
+@@ -131,6 +152,7 @@
+   logic        ex_is_branch, ex_is_jal, ex_is_jalr, ex_is_load, ex_is_store;
+   logic [2:0]  ex_funct3;
+   logic        ex_is_csr, ex_is_ecall, ex_is_ebreak, ex_is_mret, ex_illegal;
++  logic        ex_pred;      // fetch was already redirected to pc+imm in ID
+   logic [31:0] ex_rs1_val, ex_rs2_val;
+   logic [31:0] ex_insn;      // for mtval on illegal instruction
+   logic [31:0] fwd_a, fwd_b;
+@@ -172,6 +194,7 @@
+       ex_is_ebreak <= d_is_ebreak;
+       ex_is_mret   <= d_is_mret;
+       ex_illegal   <= d_illegal;
++      ex_pred      <= id_pred;
+       ex_rs1_val   <= rf_rd1;
+       ex_rs2_val   <= rf_rd2;
+     end
+@@ -298,9 +321,18 @@
+   assign ex_trap    = ex_valid & (ex_exc | irq_pending);
+   assign ex_mret_go = ex_valid & ex_is_mret & ~ex_trap;
+ 
+-  assign ex_redirect_req = ex_trap | ex_mret_go | (ex_valid & jump_taken);
++  // Control-flow correction: JALR always; JAL/branch only when the ID
++  // prediction was wrong. For a mispredicted branch the correct PC follows
++  // from the prediction alone (predicted taken -> pc+4, else the target), so
++  // the late compare result br_cond selects only whether to redirect, never
++  // where to.
++  logic ex_mispredict;
++  assign ex_mispredict   = ex_valid & (ex_is_jalr | (ex_is_jal & ~ex_pred) |
++                                       (ex_is_branch & (br_cond ^ ex_pred)));
++  assign ex_redirect_req = ex_trap | ex_mret_go | ex_mispredict;
+   assign redirect_pc     = ex_trap    ? mtvec :
+-                           ex_mret_go ? mepc  : jump_target;
++                           ex_mret_go ? mepc  :
++                           (ex_is_branch & ex_pred) ? pc_plus4 : jump_target;
+ 
+   rv32i_csr u_csr (
+     .clk         (clk),

@@ -1,0 +1,57 @@
+--- ../build/rtl_core_baseline/rv32i_hazard.sv	2026-11-20 20:27:51
++++ ../rtl/core/rv32i_hazard.sv	2026-11-20 20:27:51
+@@ -40,7 +40,7 @@
+   output logic [1:0] fwd_b,
+   output logic       stall_mem, // global freeze IF..MEM
+   output logic       redirect,  // flush ID + fetch, load new PC
+-  output logic       load_use,  // stall IF/ID, bubble EX
++  output logic       load_use,  // stall IF/ID, bubble EX (redirect has priority at every user)
+   output logic       stall_id   // IF/ID hold
+ );
+   logic mem_fw, wb_fw;
+@@ -59,9 +59,13 @@
+ 
+   assign stall_mem = mem_req & ~mem_gnt;
+   assign redirect  = ex_redirect_req & ~stall_mem;
++  // Timing: load_use deliberately does NOT depend on redirect. redirect is the
++  // latest signal in the core (forwarded operand -> branch compare); every
++  // consumer of load_use/stall_id already gives redirect priority, so gating
++  // here only put branch resolution in front of imem_en and the PC/IF-ID
++  // enables (it was the post-route critical path, see README "Timing fix").
+   assign load_use  = id_valid & ex_valid & ex_is_load & (ex_rd != 5'd0) &
+                      ((id_rs1_used & (id_rs1 == ex_rd)) |
+-                      (id_rs2_used & (id_rs2 == ex_rd))) &
+-                     ~redirect;
++                      (id_rs2_used & (id_rs2 == ex_rd)));
+   assign stall_id  = stall_mem | load_use;
+ endmodule
+--- ../build/rtl_core_baseline/rv32i_core.sv	2026-11-20 20:27:51
++++ ../rtl/core/rv32i_core.sv	2026-11-20 20:27:51
+@@ -135,18 +135,21 @@
+   logic [31:0] ex_insn;      // for mtval on illegal instruction
+   logic [31:0] fwd_a, fwd_b;
+ 
++  // Only the valid bit sees flush/interlock. The data fields load whenever the
++  // pipe is not frozen (a squashed or stalled slot is simply marked invalid),
++  // which keeps the late redirect/load_use signals off ~150 flop enables.
+   always_ff @(posedge clk or negedge rst_n) begin
+-    if (!rst_n) begin
+-      ex_valid <= 1'b0;
+-    end else if (stall_mem) begin
++    if (!rst_n)          ex_valid <= 1'b0;
++    else if (!stall_mem) ex_valid <= id_valid & ~redirect & ~load_use;
++  end
++
++  always_ff @(posedge clk) begin
++    if (stall_mem) begin
+       // Pipe is frozen. The forwarding source in WB retires this cycle and
+       // will be gone next cycle, so latch the forwarded operands now.
+       ex_rs1_val <= fwd_a;
+       ex_rs2_val <= fwd_b;
+-    end else if (redirect || load_use || !id_valid) begin
+-      ex_valid <= 1'b0;
+     end else begin
+-      ex_valid     <= 1'b1;
+       ex_pc        <= id_pc;
+       ex_insn      <= id_insn;
+       ex_rs1       <= d_rs1;

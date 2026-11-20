@@ -1,0 +1,11 @@
+apb_uart RTL is lint-clean: verilator --lint-only -Wall rtl/apb_uart.sv rtl/uart_*.sv --top-module apb_uart
+Created: 2026-11-20 18:29
+Files to copy: rtl/apb_uart.sv rtl/uart_fifo.sv rtl/uart_baud_gen.sv rtl/uart_tx.sv rtl/uart_rx.sv
+Register map: docs/REGISTERS.md
+Top: apb_uart #(ADDR_W=12, FIFO_DEPTH=16, WAIT_STATES=1, BAUD_RESET=16'd26)
+Ports: pclk presetn psel penable pwrite paddr[ADDR_W-1:0] pwdata[31:0] prdata[31:0] pready pslverr rxd txd irq
+Notes: AMBA 3 APB slave, one wait state per access by default (set WAIT_STATES=0 for zero-wait).
+       Bit period = 16*(BAUD+1) pclk cycles. Reset: TX_EN=RX_EN=1, 8N1.
+If RTL changes after verification finds bugs, a CHANGELOG section is appended below.
+CHANGELOG:
+2026-11-20 20:03 verification complete, RTL unchanged since creation: 500 seeds (WAIT_STATES=1) + 100 seeds (WAIT_STATES=0) pass, 14/14 mutants caught; see README results.
