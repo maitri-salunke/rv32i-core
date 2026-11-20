@@ -195,7 +195,7 @@ make test-isa             # riscv-tests (+ Spike diff), then again with 30% dmem
 make test-random N=200    # N random programs, lock-step vs Spike (every 3rd with 25% back-pressure)
 make cpi                  # Dhrystone CPI from mcycle/minstret
 make test-soc             # SoC: APB UART print + loopback, APB timer interrupts
-make mutation             # inject 5 hazard bugs, confirm the random flow catches each
+make mutation             # inject 8 hazard/predecode bugs, confirm the random flow catches each
 make pd                   # OpenLane2 2.3.10 (Docker) RTL-to-GDS of rv32i_core; see pd/
 ```
 
