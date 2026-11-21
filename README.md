@@ -62,6 +62,10 @@ shown; the logs are under `build/` and `pd/results/`.
   / unimplemented CSR, load/store/fetch misaligned, and the machine timer
   interrupt; `mepc`/`mcause`/`mtval`/`mstatus.MIE/MPIE` and `mret`.
 
+![Pipeline diagram](docs/media/pipeline.png)
+
+*Stage occupancy per cycle for `sw/pipe_demo/pipe_demo.S`, taken from the Verilator model (`+pipetrace=`, drawn by `scripts/pipeview.py`).*
+
 The full explanation is in [docs/DESIGN.md](docs/DESIGN.md). Defects found are in
 [docs/BUGS.md](docs/BUGS.md).
 
@@ -140,6 +144,14 @@ Full reports: `pd/results/{base,fix,final,pred}/` (`summary.md`, `metrics.json`,
 post-route `max.rpt` at tt and ss). One more run, `pd/results/signoff23/`
 (T = 23 ns with the resizer also targeting the ss corner), was *worse*
 (ss -4.269 ns at 23 ns, 796 slew violations) and is kept only for the record.
+
+![GDSII layout of rv32i_core](docs/media/layout.png)
+
+*Final GDSII of the `pred` run (current RTL), rendered with KLayout; 496.7 x 507.4 um die.*
+
+![Layout detail](docs/media/layout_detail.png)
+
+*A 32 x 20 um window of the same layout: standard cells (diff, poly, li1) under met1-met5 routing.*
 
 **Not signed off.** No run meets setup at the ss corner at 20 ns, and the
 max-slew/max-cap violations (mostly at ss, introduced largely by the

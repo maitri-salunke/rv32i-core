@@ -9,6 +9,7 @@
 //   +tohost=<hex>      tohost address (default 80001000)
 //   +max_cycles=<n>    timeout (default 10,000,000)
 //   +trace=<file>      write Spike --log-commits style retire trace
+//   +pipetrace=<file>  write per-cycle stage occupancy (scripts/pipeview.py)
 //   +stall_pct=<n>     % of dmem requests that see gnt=0 for a cycle (default 0)
 //   +verilator+seed+<n> seed for stall injection
 module tb_core;
@@ -61,6 +62,7 @@ module tb_core;
   longint unsigned cycles = 0;
   int exit_code = -1;
   int trace_fd = 0;
+  int pipe_fd = 0;
   longint unsigned max_cycles = 10_000_000;
 
   always_ff @(posedge clk) begin
@@ -87,13 +89,14 @@ module tb_core;
   rv_tracer u_tracer (.clk(clk), .rst_n(rst_n), .fd(trace_fd));
 
   // ---------------- control ----------------
-  string hexfile, tracefile;
+  string hexfile, tracefile, pipefile;
   initial begin
     if (!$value$plusargs("hex=%s", hexfile)) $fatal(1, "need +hex=<file>");
     void'($value$plusargs("tohost=%h", tohost));
     void'($value$plusargs("max_cycles=%d", max_cycles));
     void'($value$plusargs("stall_pct=%d", stall_pct));
     if ($value$plusargs("trace=%s", tracefile)) trace_fd = $fopen(tracefile, "w");
+    if ($value$plusargs("pipetrace=%s", pipefile)) pipe_fd = $fopen(pipefile, "w");
     $readmemh(hexfile, imem);
     $readmemh(hexfile, dmem);
     repeat (3) @(posedge clk);
@@ -122,6 +125,19 @@ module tb_core;
   end
 
   int drain = 0;
+
+  // ---------------- optional per-cycle pipeline trace (+pipetrace=<file>) ----------------
+  // One line per cycle, values sampled before the clock edge:
+  //   <cycle> <pc_f> <imem_en> <id_v> <id_pc> <ex_v> <ex_pc> <mem_v> <mem_pc>
+  //   <wb_v> <wb_pc> <fwd_a> <fwd_b> <load_use> <redirect> <id_pred> <stall_mem>
+  always @(posedge clk) if (rst_n && pipe_fd != 0 && drain < 4 && cycles < max_cycles) begin
+    $fwrite(pipe_fd, "%0d %08x %0d %0d %08x %0d %08x %0d %08x %0d %08x %0d %0d %0d %0d %0d %0d\n",
+            cycles, u_core.pc_f, u_core.imem_en, u_core.id_valid, u_core.id_pc,
+            u_core.ex_valid, u_core.ex_pc, u_core.mem_valid, u_core.mem_pc,
+            u_core.wb_valid, u_core.wb_pc, u_core.fwd_a_sel, u_core.fwd_b_sel,
+            u_core.load_use, u_core.redirect, u_core.id_pred, u_core.stall_mem);
+  end
+
   always @(posedge clk) begin
     if (rst_n && exit_code < 0) cycles <= cycles + 1;
     if (exit_code >= 0) drain <= drain + 1;
@@ -129,6 +145,7 @@ module tb_core;
     if (exit_code >= 0 && drain == 4) begin
       // let the tohost store drain from the trace, then report
       if (trace_fd != 0) $fclose(trace_fd);
+      if (pipe_fd != 0) $fclose(pipe_fd);
       $display("");
       $display("TOHOST=%0d cycles=%0d", exit_code, cycles);
       $display("COV retired=%0d load_use=%0d fwd_mem=%0d fwd_wb=%0d redirect=%0d taken=%0d mispred=%0d jalr=%0d id_pred=%0d trap=%0d mem_stall=%0d fwd_during_stall=%0d",
@@ -139,6 +156,7 @@ module tb_core;
     end
     if (cycles >= max_cycles) begin
       if (trace_fd != 0) $fclose(trace_fd);
+      if (pipe_fd != 0) $fclose(pipe_fd);
       $display("RESULT: TIMEOUT after %0d cycles (pc_f=%08x)", cycles, u_core.pc_f);
       $finish;
     end
